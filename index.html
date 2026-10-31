@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Corgi Pumpkin Run</title>
+<style>
+  body { margin:0; background:#1a1a2e; display:flex; flex-direction:column;
+         align-items:center; font-family:Arial, sans-serif; color:#fff; }
+  canvas { border:3px solid #ff9f1c; border-radius:12px; margin-top:10px;
+           background:linear-gradient(#2d1b4e, #1a1a2e); }
+  #ui { margin:10px; display:flex; gap:10px; flex-wrap:wrap; justify-content:center; }
+  button { padding:8px 14px; border:none; border-radius:8px; cursor:pointer;
+           background:#ff9f1c; color:#1a1a2e; font-weight:bold; }
+  button:hover { background:#ffbf69; }
+  #hud { position:absolute; top:20px; left:20px; font-size:18px; }
+</style>
+</head>
+<body>
+<h2>🎃 Corgi Pumpkin Run 🐕</h2>
+<div id="ui">
+  <button onclick="startGame(1)">Уровень 1 (стоячие)</button>
+  <button onclick="startGame(2)">Уровень 2 (медленные)</button>
+  <button onclick="startGame(3)">Уровень 3 (быстрые + бомбы)</button>
+  <button onclick="nextSkin()">Сменить скин (S)</button>
+</div>
+<canvas id="game" width="800" height="500"></canvas>
+<div id="hud"></div>
+
+<script>
+const cv = document.getElementById('game');
+const ctx = cv.getContext('2d');
+const hud = document.getElementById('hud');
+
+const W = cv.width, H = cv.height;
+const GROUND = H - 70;
+const DOG_Y = GROUND;
+
+let dog = {
+  x: W/2, y: DOG_Y,
+  speed: 6,
+  vy: 0, jumping: false,
+  gravity: 0.9, jumpPower: -16,
+  w: 60, h: 80
+};
+let items = [];
+let score = 0, lives = 3, level = 1;
+let running = false;
+let skinIndex = 0;
+let lastWasBomb = false;   // ← защита от двух бомб подряд
+const SKINS = ['corgi', 'zombie', 'vampire', 'mummy', 'pumpkin'];
+
+// ---------- Собака ----------
+function drawDog() {
+  const s = SKINS[skinIndex];
+  const x = dog.x, y = dog.y;
+
+  let bodyColor, darkColor, headColor;
+  if (s === 'zombie')       { bodyColor='#6b8e23'; darkColor='#4a6318'; headColor='#7fa82e'; }
+  else if (s === 'vampire') { bodyColor='#2b2b2b'; darkColor='#111';    headColor='#3a3a3a'; }
+  else if (s === 'mummy')   { bodyColor='#e8e0c8'; darkColor='#c9c0a0'; headColor='#f0e8d0'; }
+  else if (s === 'pumpkin') { bodyColor='#ff7b00'; darkColor='#a34a00'; headColor='#ff9f33'; }
+  else                      { bodyColor='#f4a261'; darkColor='#d17d3c'; headColor='#ffb877'; }
+
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  ctx.beginPath(); ctx.ellipse(x, GROUND + 8, 38, 8, 0, 0, Math.PI*2); ctx.fill();
+
+  ctx.fillStyle = darkColor;
+  ctx.beginPath(); ctx.ellipse(x - 18, y - 6, 9, 12, 0, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(x + 14, y - 6, 9, 12, 0, 0, Math.PI*2); ctx.fill();
+
+  const bodyGrad = ctx.createRadialGradient(x - 8, y - 30, 5, x, y - 22, 40);
+  bodyGrad.addColorStop(0, headColor);
+  bodyGrad.addColorStop(1, bodyColor);
+  ctx.fillStyle = bodyGrad;
+  ctx.beginPath(); ctx.ellipse(x, y - 22, 35, 22, 0, 0, Math.PI*2); ctx.fill();
+
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.beginPath(); ctx.ellipse(x + 18, y - 22, 12, 15, 0, 0, Math.PI*2); ctx.fill();
+
+  const headGrad = ctx.createRadialGradient(x + 20, y - 50, 3, x + 25, y - 42, 22);
+  headGrad.addColorStop(0, headColor);
+  headGrad.addColorStop(1, bodyColor);
+  ctx.fillStyle = headGrad;
+  ctx.beginPath(); ctx.arc(x + 25, y - 42, 20, 0, Math.PI*2); ctx.fill();
+
+  ctx.fillStyle = bodyColor;
+  ctx.beginPath();
+  ctx.moveTo(x + 14, y - 55); ctx.lineTo(x + 18, y - 78); ctx.lineTo(x + 28, y - 57);
+  ctx.closePath(); ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(x + 32, y - 57); ctx.lineTo(x + 38, y - 78); ctx.lineTo(x + 44, y - 55);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#ffb6a0';
+  ctx.beginPath();
+  ctx.moveTo(x + 17, y - 58); ctx.lineTo(x + 20, y - 72); ctx.lineTo(x + 26, y - 58);
+  ctx.closePath(); ctx.fill();
+
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  ctx.beginPath(); ctx.ellipse(x + 33, y - 36, 12, 10, 0, 0, Math.PI*2); ctx.fill();
+
+  ctx.fillStyle = (s === 'zombie' || s === 'vampire') ? '#ff0000' : '#111';
+  ctx.beginPath(); ctx.arc(x + 20, y - 46, 3.5, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(x + 32, y - 46, 3.5, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.arc(x + 21, y - 47, 1.2, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(x + 33, y - 47, 1.2, 0, Math.PI*2); ctx.fill();
+
+  ctx.fillStyle = '#111';
+  ctx.beginPath(); ctx.ellipse(x + 40, y - 38, 4, 3, 0, 0, Math.PI*2); ctx.fill();
+
+  ctx.strokeStyle = '#111'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(x + 36, y - 34, 4, 0.2, Math.PI - 0.2); ctx.stroke();
+
+  ctx.strokeStyle = bodyColor; ctx.lineWidth = 6; ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(x - 32, y - 25);
+  ctx.quadraticCurveTo(x - 48, y - 30, x - 42, y - 45);
+  ctx.stroke();
+
+  if (s === 'vampire') {
+    ctx.fillStyle = '#4a0000';
+    ctx.beginPath();
+    ctx.moveTo(x - 30, y - 42); ctx.lineTo(x - 50, y + 10);
+    ctx.lineTo(x + 15, y + 10); ctx.lineTo(x + 5, y - 42);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.moveTo(x + 36, y - 32); ctx.lineTo(x + 38, y - 28); ctx.lineTo(x + 40, y - 32);
+    ctx.closePath(); ctx.fill();
+  }
+
+  if (s === 'mummy') {
+    ctx.strokeStyle = '#c9c0a0'; ctx.lineWidth = 3;
+    for (let i = -2; i <= 2; i++) {
+      ctx.beginPath();
+      ctx.moveTo(x - 30, y - 22 + i*8);
+      ctx.lineTo(x + 30, y - 22 + i*8);
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath(); ctx.arc(x - 42, y - 27, 13, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#cccccc';
+    ctx.beginPath(); ctx.arc(x - 42, y - 27, 5, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(x - 54, y - 22); ctx.lineTo(x - 64, y - 6);
+    ctx.stroke();
+  }
+
+  if (s === 'pumpkin') {
+    const tx = x + 25, ty = y - 75, tr = 26;
+    ctx.fillStyle = '#ff7b00';
+    ctx.beginPath(); ctx.ellipse(tx, ty, tr, tr*0.85, 0, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = '#a34a00'; ctx.lineWidth = 2;
+    for (let i = -1; i <= 1; i++) {
+      ctx.beginPath();
+      ctx.ellipse(tx + i*tr*0.4, ty, tr*0.15, tr*0.85, 0, 0, Math.PI*2);
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#2d6a1f';
+    ctx.fillRect(tx - 3, ty - tr - 6, 6, 8);
+    ctx.fillStyle = '#3a1a00';
+    ctx.beginPath();
+    ctx.moveTo(tx - 14, ty - 6); ctx.lineTo(tx - 6, ty - 10); ctx.lineTo(tx - 4, ty - 2);
+    ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(tx + 14, ty - 6); ctx.lineTo(tx + 6, ty - 10); ctx.lineTo(tx + 4, ty - 2);
+    ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(tx - 12, ty + 6);
+    ctx.lineTo(tx - 6, ty + 12);
+    ctx.lineTo(tx - 2, ty + 6);
+    ctx.lineTo(tx + 2, ty + 12);
+    ctx.lineTo(tx + 6, ty + 6);
+    ctx.lineTo(tx + 12, ty + 12);
+    ctx.lineTo(tx + 14, ty + 6);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = 'rgba(255,220,0,0.35)';
+    ctx.beginPath(); ctx.ellipse(tx, ty + 2, 10, 8, 0, 0, Math.PI*2); ctx.fill();
+  }
+}
+
+// ---------- Тыква ----------
+function drawPumpkin(x, y, r) {
+  ctx.fillStyle = '#ff7b00';
+  ctx.beginPath(); ctx.ellipse(x, y, r, r*0.85, 0, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = '#a34a00'; ctx.lineWidth = 2;
+  for (let i = -1; i <= 1; i++) {
+    ctx.beginPath();
+    ctx.ellipse(x + i*r*0.4, y, r*0.15, r*0.85, 0, 0, Math.PI*2);
+    ctx.stroke();
+  }
+  ctx.fillStyle = '#2d6a1f';
+  ctx.fillRect(x - 3, y - r - 6, 6, 8);
+}
+
+// ---------- Бомба ----------
+function drawBomb(x, y, r) {
+  ctx.fillStyle = '#222';
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = '#ffcc00'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x + r*0.5, y - r*0.7);
+  ctx.quadraticCurveTo(x + r, y - r*1.5, x + r*1.4, y - r*1.2);
+  ctx.stroke();
+  ctx.fillStyle = '#ff4400';
+  ctx.beginPath(); ctx.arc(x + r*1.4, y - r*1.2, 3, 0, Math.PI*2); ctx.fill();
+}
+
+// ---------- Спавн (бомбы не подряд) ----------
+function spawnItem() {
+  // бомба только на 3-м уровне, только если предыдущий предмет — НЕ бомба
+  const isBomb = level === 3 && !lastWasBomb && Math.random() < 0.25;
+  lastWasBomb = isBomb;
+
+  const r = 22;
+  const fromLeft = Math.random() < 0.5;
+
+  let vx = 0;
+  let life = 999999;
+  if (level === 1) {
+    vx = 0;
+    life = 240;
+  }
+  if (level === 2) vx = (fromLeft ? 1 : -1) * 1.5;
+  if (level === 3) vx = (fromLeft ? 1 : -1) * (3 + Math.random()*2.5);
+
+  items.push({
+    x: level === 1
+        ? 80 + Math.random() * (W - 160)
+        : (fromLeft ? -40 : W + 40),
+    y: GROUND - r + 4,
+    vx: vx,
+    r: r,
+    bomb: isBomb,
+    rot: 0,
+    life: life
+  });
+}
+
+// ---------- Столкновение с учётом прыжка ----------
+function collides(it) {
+  const dx = Math.abs(it.x - (dog.x + 10));
+  const horiz = dx < it.r + 28;
+  if (!horiz) return false;
+
+  const dogTop    = dog.y - dog.h;
+  const dogBottom = dog.y;
+  const itemTop    = it.y - it.r;
+  const itemBottom = it.y + it.r;
+
+  return dogBottom > itemTop && dogTop < itemBottom;
+}
+
+// ---------- Игровой цикл ----------
+let spawnTimer = 0;
+function loop() {
+  if (!running) return;
+
+  ctx.clearRect(0, 0, W, H);
+
+  ctx.fillStyle = '#2d6a1f';
+  ctx.fillRect(0, GROUND + 10, W, H - GROUND);
+  ctx.fillStyle = '#1f4d14';
+  for (let i = 0; i < W; i += 20) ctx.fillRect(i, GROUND + 10, 10, 8);
+  ctx.strokeStyle = '#4a8f2f'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(0, GROUND + 10); ctx.lineTo(W, GROUND + 10); ctx.stroke();
+
+  if (keys['ArrowLeft'] || keys['a']) dog.x -= dog.speed;
+  if (keys['ArrowRight'] || keys['d']) dog.x += dog.speed;
+  dog.x = Math.max(50, Math.min(W - 50, dog.x));
+
+  if (dog.jumping) {
+    dog.y += dog.vy;
+    dog.vy += dog.gravity;
+    if (dog.y >= DOG_Y) { dog.y = DOG_Y; dog.jumping = false; dog.vy = 0; }
+  }
+
+  drawDog();
+
+  spawnTimer--;
+  if (spawnTimer <= 0) {
+    spawnItem();
+    spawnTimer = level === 1 ? 70 : level === 2 ? 55 : 40;
+  }
+
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i];
+    it.x += it.vx;
+    it.rot += it.vx * 0.05;
+    it.life--;
+
+    if (it.bomb) drawBomb(it.x, it.y, it.r);
+    else drawPumpkin(it.x, it.y, it.r);
+
+    if (collides(it)) {
+      if (it.bomb) { lives--; if (lives <= 0) gameOver(); }
+      else score += 10;
+      items.splice(i, 1);
+      continue;
+    }
+
+    if (level === 1 && it.life <= 0) {
+      items.splice(i, 1);
+      continue;
+    }
+
+    if (it.x < -60 || it.x > W + 60) {
+      if (!it.bomb) {
+        lives--;
+        if (lives <= 0) gameOver();
+      }
+      items.splice(i, 1);
+    }
+  }
+
+  hud.textContent = `Очки: ${score}   Жизни: ${'❤️'.repeat(Math.max(0,lives))}   Скин: ${SKINS[skinIndex]}`;
+
+  requestAnimationFrame(loop);
+}
+
+// ---------- Управление ----------
+const keys = {};
+window.addEventListener('keydown', e => {
+  keys[e.key] = true;
+
+  if ((e.key === ' ' || e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') && !dog.jumping) {
+    dog.jumping = true;
+    dog.vy = dog.jumpPower;
+  }
+
+  if (e.key === 's' || e.key === 'S') nextSkin();
+  if (e.key === '1') startGame(1);
+  if (e.key === '2') startGame(2);
+  if (e.key === '3') startGame(3);
+  if (e.key === ' ') e.preventDefault();
+});
+window.addEventListener('keyup', e => keys[e.key] = false);
+
+function nextSkin() { skinIndex = (skinIndex + 1) % SKINS.length; }
+
+function startGame(lvl) {
+  level = lvl;
+  score = 0; lives = 3; items = [];
+  dog.x = W/2; dog.y = DOG_Y; dog.jumping = false; dog.vy = 0;
+  running = true; spawnTimer = 0;
+  lastWasBomb = false;   // сброс защиты
+  loop();
+}
+
+function gameOver() {
+  running = false;
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#ff9f1c';
+  ctx.font = 'bold 40px Arial';
+  ctx.textAlign = 'center';
+  ctx.fillText('Игра окончена!', W/2, H/2 - 20);
+  ctx.font = '24px Arial';
+  ctx.fillStyle = '#fff';
+  ctx.fillText(`Очки: ${score}`, W/2, H/2 + 25);
+  ctx.fillText('Нажми 1, 2 или 3 для рестарта', W/2, H/2 + 65);
+}
+
+// старт
+ctx.fillStyle = '#ff9f1c';
+ctx.font = 'bold 32px Arial';
+ctx.textAlign = 'center';
+ctx.fillText('🎃 Выбери уровень! 🎃', W/2, H/2 - 70);
+ctx.font = '20px Arial';
+ctx.fillStyle = '#fff';
+ctx.fillText('Нажми 1, 2 или 3', W/2, H/2 - 25);
+ctx.fillText('← → / A D — движение', W/2, H/2 + 10);
+ctx.fillText('Пробел / ↑ / W — прыжок', W/2, H/2 + 40);
+ctx.fillText('S — сменить скин (5 штук, включая 🎃)', W/2, H/2 + 70);
+</script>
+</body>
+</html>
